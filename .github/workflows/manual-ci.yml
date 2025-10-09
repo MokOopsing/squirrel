@@ -12,10 +12,11 @@ jobs:
         with:
           submodules: true
 
-      - name: Update librime submodule to latest master
+      - name: Fetch latest librime for build
         run: |
-          git submodule set-branch --branch master librime
-          git submodule update --remote --merge librime
+          cd librime
+          git fetch --depth=1 origin master
+          git reset --hard origin/master
 
       - name: Install SwiftLint
         run: brew install swiftlint
