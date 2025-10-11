@@ -218,10 +218,8 @@ final class SquirrelInputController: IMKInputController {
     // print("[DEBUG] commitComposition: \(sender ?? "nil")")
     //  commit raw input
     if session != 0 {
-      if let input = rimeAPI.get_input(session) {
-        commit(string: "test")
-        rimeAPI.clear_composition(session)
-      }
+      client?.setMarkedText("", selectionRange: .empty, replacementRange: .empty)
+      rimeAPI.clear_composition(session)
     }
   }
 
