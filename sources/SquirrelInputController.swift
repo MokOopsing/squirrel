@@ -219,7 +219,7 @@ final class SquirrelInputController: IMKInputController {
     //  commit raw input
     if session != 0 {
       if let input = rimeAPI.get_input(session) {
-        commit(string: String(cString: input))
+        //commit(string: String(cString: input))
         rimeAPI.clear_composition(session)
       }
     }
