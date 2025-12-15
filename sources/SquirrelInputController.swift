@@ -345,6 +345,7 @@ private extension SquirrelInputController {
 
     if session != 0 {
       updateAppOptions()
+      NSApp.squirrelAppDelegate.preloadOptions(for: session)
     }
   }
 
@@ -363,7 +364,10 @@ private extension SquirrelInputController {
   func destroySession() {
     // print("[DEBUG] destroySession:")
     if session != 0 {
+      let sid = session
       _ = rimeAPI.destroy_session(session)
+      // clear cached options for this session
+      NSApp.squirrelAppDelegate.removeOptions(for: sid)
       session = 0
     }
     clearChord()
@@ -374,11 +378,11 @@ private extension SquirrelInputController {
 
     // with linear candidate list, arrow keys may behave differently.
     if let panel = NSApp.squirrelAppDelegate.panel {
-      if panel.linear != rimeAPI.get_option(session, "_linear") {
+      if panel.linear != NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "_linear") {
         rimeAPI.set_option(session, "_linear", panel.linear)
       }
       // with vertical text, arrow keys may behave differently.
-      if panel.vertical != rimeAPI.get_option(session, "_vertical") {
+      if panel.vertical != NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "_vertical") {
         rimeAPI.set_option(session, "_vertical", panel.vertical)
       }
     }
@@ -390,8 +394,8 @@ private extension SquirrelInputController {
 
     if !handled {
       let isVimBackInCommandMode = rimeKeycode == XK_Escape || ((rimeModifiers & kControlMask.rawValue != 0) && (rimeKeycode == XK_c || rimeKeycode == XK_C || rimeKeycode == XK_bracketleft))
-      if isVimBackInCommandMode && rimeAPI.get_option(session, "vim_mode") &&
-          !rimeAPI.get_option(session, "ascii_mode") {
+      if isVimBackInCommandMode && NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "vim_mode") &&
+          !NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "ascii_mode") {
         rimeAPI.set_option(session, "ascii_mode", true)
         // print("[DEBUG] turned Chinese mode off in vim-like editor's command mode")
       }
@@ -402,7 +406,7 @@ private extension SquirrelInputController {
       default:
         false
       }
-      if isChordingKey && rimeAPI.get_option(session, "_chord_typing") {
+      if isChordingKey && NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "_chord_typing") {
         updateChord(keycode: rimeKeycode, modifiers: rimeModifiers)
       } else if (rimeModifiers & kReleaseMask.rawValue) == 0 {
         // non-chording key pressed
@@ -437,8 +441,8 @@ private extension SquirrelInputController {
         NSApp.squirrelAppDelegate.loadSettings(for: schemaId)
         // inline preedit
         if let panel = NSApp.squirrelAppDelegate.panel {
-          inlinePreedit = (panel.inlinePreedit && !rimeAPI.get_option(session, "no_inline")) || rimeAPI.get_option(session, "inline")
-          inlineCandidate = panel.inlineCandidate && !rimeAPI.get_option(session, "no_inline")
+          inlinePreedit = (panel.inlinePreedit && !NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "no_inline")) || NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "inline")
+          inlineCandidate = panel.inlineCandidate && !NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "no_inline")
           // if not inline, embed soft cursor in preedit string
           rimeAPI.set_option(session, "soft_cursor", !inlinePreedit)
         }
@@ -516,7 +520,7 @@ private extension SquirrelInputController {
       var candidates = [String]()
       var comments = [String]()
       var labels = [String]()
-      if !rimeAPI.get_option(session, "_hide_candidate") {
+      if !NSApp.squirrelAppDelegate.getCachedOption(sessionId: session, name: "_hide_candidate") {
         for i in 0..<numCandidates {
           let candidate = ctx.menu.candidates[i]
           candidates.append(candidate.text.map { String(cString: $0) } ?? "")

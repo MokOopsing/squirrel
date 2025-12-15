@@ -18,6 +18,10 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
   var config: SquirrelConfig?
   var panel: SquirrelPanel?
   var enableNotifications = false
+  // cache option states per session to avoid frequent rimeAPI.get_option calls
+  private var optionCache: [RimeSessionId: [String: Bool]] = [:]
+  // concurrent queue to protect optionCache: concurrent reads, barrier writes
+  private let optionCacheQueue = DispatchQueue(label: "org.rime.squirrel.optionCache", attributes: .concurrent)
   let updateController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
   var supportsGentleScheduledUpdateReminders: Bool {
     true
@@ -142,6 +146,55 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
     rimeAPI.setup(&squirrelTraits)
   }
 
+  // Preload commonly used options for a session to reduce expensive get_option calls
+  func preloadOptions(for sessionId: RimeSessionId) {
+    guard sessionId != 0 else { return }
+    let optionKeys = ["_linear", "_vertical", "vim_mode", "ascii_mode", "_chord_typing", "no_inline", "inline", "_hide_candidate", "soft_cursor"]
+    let optionDict = Dictionary(uniqueKeysWithValues: optionKeys.map { optionKey in
+      (optionKey, rimeAPI.get_option(sessionId, optionKey))
+    })
+    optionCacheQueue.async(flags: .barrier) {
+      self.optionCache[sessionId] = optionDict
+    }
+  }
+
+  func updateOptionCache(sessionId: RimeSessionId, optionName: String, state: Bool) {
+    guard sessionId != 0 else { return }
+    optionCacheQueue.async(flags: .barrier) {
+      var dict = self.optionCache[sessionId] ?? [:]
+      dict[optionName] = state
+      self.optionCache[sessionId] = dict
+    }
+  }
+
+  func removeOptions(for sessionId: RimeSessionId) {
+    guard sessionId != 0 else { return }
+    optionCacheQueue.async(flags: .barrier) {
+      self.optionCache[sessionId] = nil
+    }
+  }
+
+  func getCachedOption(sessionId: RimeSessionId, name: String) -> Bool {
+    guard sessionId != 0 else { return false }
+
+    var cachedValue: Bool?
+    optionCacheQueue.sync {
+      if let optionDict = self.optionCache[sessionId], let cachedOption = optionDict[name] {
+        cachedValue = cachedOption
+      }
+    }
+    if let value = cachedValue { return value }
+
+    // fallback to querying rime and cache it
+    let optionValue = rimeAPI.get_option(sessionId, name)
+    optionCacheQueue.async(flags: .barrier) {
+      var optionDict = self.optionCache[sessionId] ?? [:]
+      optionDict[name] = optionValue
+      self.optionCache[sessionId] = optionDict
+    }
+    return optionValue
+  }
+
   func startRime(fullCheck: Bool) {
     print("Initializing la rime...")
     rimeAPI.initialize(nil)
@@ -263,12 +316,19 @@ private func notificationHandler(contextObject: UnsafeMutableRawPointer?, sessio
     return
   } else if messageType == "option" {
     let state = messageValue?.first != "!"
-    let optionName = if state {
-      messageValue
-    } else {
-      String(messageValue![messageValue!.index(after: messageValue!.startIndex)...])
-    }
+    let optionName: String? = {
+      if state {
+        return messageValue
+      } else {
+        if let messageVal = messageValue {
+          return String(messageVal[messageVal.index(after: messageVal.startIndex)...])
+        }
+        return nil
+      }
+    }()
     if let optionName = optionName {
+      // update cached option value
+      delegate.updateOptionCache(sessionId: sessionId, optionName: optionName, state: state)
       optionName.withCString { name in
         let stateLabelLong = delegate.rimeAPI.get_state_label_abbreviated(sessionId, name, state, false)
         let stateLabelShort = delegate.rimeAPI.get_state_label_abbreviated(sessionId, name, state, true)
